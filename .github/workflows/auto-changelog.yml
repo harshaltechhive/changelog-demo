@@ -3,12 +3,14 @@ name: Auto Update Changelog on Merge to dev
 on:
   pull_request:
     types: [closed]
-    branches:
-      - dev
+    branches: [dev]
+  push:
+    branches: [dev]
 
 jobs:
   update-changelog:
-    if: github.event.pull_request.merged == true
+   update-changelog:
+    if: (github.event_name == 'pull_request' && github.event.pull_request.merged == true) || github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # Needed to push to dev
