@@ -1,0 +1,83 @@
+name: Usage-Focused Changelog with Groq (Free Tier)
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
+
+jobs:
+  generate-usage-changelog:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      # Collect PR info
+      - name: Collect PR information
+        id: pr-info
+        run: |
+          echo "TITLE=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "BODY=${{ github.event.pull_request.body || 'No description provided' }}" >> $GITHUB_OUTPUT
+          echo "AUTHOR=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+
+          echo "COMMITS<<COMMITS_EOF" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s (%an)" \
+            ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} || echo "- No commits found"
+          echo "" >> $GITHUB_OUTPUT
+          echo "COMMITS_EOF" >> $GITHUB_OUTPUT
+
+      # Generate usage description with Groq
+      - name: Generate user-friendly usage description with Groq
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.PR_NUMBER }}
+          PR_TITLE: ${{ steps.pr-info.outputs.TITLE }}
+          PR_AUTHOR: ${{ steps.pr-info.outputs.AUTHOR }}
+        run: |
+          curl -s https://api.groq.com/openai/v1/chat/completions \
+            -H "Authorization: Bearer $GROQ_API_KEY" \
+            -H "Content-Type: application/json" \
+            --data '{
+              "model": "llama-3.1-8b-instant",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a friendly app writer creating simple, helpful release notes or \"What'\''s new\" entries.\n\nWrite ONLY about what the user can now DO and HOW to use the new/improved feature.\nUse simple, everyday language: \"You can now...\", \"This lets you...\", \"Go to ... and ...\", \"Click ... to ...\"\nMake it welcoming and clear — like instructions in the app itself.\n3–6 sentences maximum.\nUse markdown formatting.\nStart directly with ### [Short Feature Name or Action]\n\nDo NOT mention code, components, functions, state, validation, API, backend, frontend, React, TypeScript, commits, PR number (except in heading), implementation details, or any technical words.\n\nExample:\n### Log In to Your Account\nYou can now sign in using your email and password on the nice blue login screen. Just type your email, enter your password, and tap the Login button. Check \"Remember me\" if you want to stay signed in next time you open the app. Forgot your password? Click the link to reset it quickly.\n\nIf you have very little useful information, output only:\n### Minor update\nA small improvement was made. Check the code or ask the developer for details."
+                },
+                {
+                  "role": "user",
+                  "content": "PR title: ${{ env.PR_TITLE }}\nPR description: ${{ steps.pr-info.outputs.BODY }}\nCommits:\n${{ steps.pr-info.outputs.COMMITS }}"
+                }
+              ],
+              "temperature": 0.7,
+              "max_tokens": 300
+            }' | jq -r '.choices[0].message.content // "Minor update\nA small improvement was made. Check the code or ask the developer for details."' > usage-description.md
+
+      # Append to CHANGELOG.md
+      - name: Append generated text to CHANGELOG.md
+        run: |
+          {
+            echo ""
+            echo "## PR #${{ steps.pr-info.outputs.PR_NUMBER }}: ${{ steps.pr-info.outputs.TITLE }} (@${{ steps.pr-info.outputs.AUTHOR }})"
+            echo ""
+            cat usage-description.md
+            echo ""
+            echo "---"
+            echo ""
+          } >> CHANGELOG.md
+
+      # Auto-commit
+      - name: Commit the updated changelog
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: add user-friendly usage changelog for PR #${{ steps.pr-info.outputs.PR_NUMBER }} [skip ci]"
+          branch: dev
+          file_pattern: CHANGELOG.md
