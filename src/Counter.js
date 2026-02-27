@@ -17,11 +17,17 @@ function reset() {
   console.log("Count reset:", count);
 }
 
-function multiply() {
-  count *= 2;
+function multiplthis() {
+  count *= 3;
   console.log("Count:", count);
 }
 function divide() {
   count /= 2;
+  console.log("Count:", count);
+}
+
+
+function quadlize() {
+  count *= 4;
   console.log("Count:", count);
 }
