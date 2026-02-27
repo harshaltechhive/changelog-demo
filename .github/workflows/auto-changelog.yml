@@ -19,9 +19,9 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      # ────────────────────────────────────────────────────────────────
-      #  COLLECT PR METADATA (title, body, author, commits)
-      # ────────────────────────────────────────────────────────────────
+      # ────────────────────────────────────────────────
+      # Collect PR info (title, body, author, commits)
+      # ────────────────────────────────────────────────
       - name: Collect PR information
         id: pr-info
         run: |
@@ -36,59 +36,71 @@ jobs:
           echo "" >> $GITHUB_OUTPUT
           echo "COMMITS_EOF" >> $GITHUB_OUTPUT
 
-      # ────────────────────────────────────────────────────────────────
-      #  CACHE OLLAMA + MODEL (this is the big time-saver)
-      # ────────────────────────────────────────────────────────────────
-      - name: Cache Ollama binary and models
+      # ────────────────────────────────────────────────
+      # Cache Ollama + models (big speedup after first run)
+      # ────────────────────────────────────────────────
+      - name: Cache Ollama binary & models
         uses: actions/cache@v4
         id: cache-ollama
         with:
           path: |
             ~/.ollama
             /usr/local/bin/ollama
-          key: ollama-models-v2-${{ runner.os }}-phi3-mini-llama3.2-3b
-          restore-keys: ollama-models-v2-${{ runner.os }}-
+          key: ollama-cache-v3-${{ runner.os }}-llama3.2-3b-phi3-mini
+          restore-keys: ollama-cache-v3-${{ runner.os }}-
 
-      # ────────────────────────────────────────────────────────────────
-      #  INSTALL OLLAMA ONLY IF CACHE MISS
-      # ────────────────────────────────────────────────────────────────
-      - name: Install Ollama (only if not cached)
+      # ────────────────────────────────────────────────
+      # Install Ollama only if cache was missed
+      # ────────────────────────────────────────────────
+      - name: Install Ollama (only on cache miss)
         if: steps.cache-ollama.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
 
-      # ────────────────────────────────────────────────────────────────
-      #  START SERVER + PULL MODEL IF MISSING
-      # ────────────────────────────────────────────────────────────────
+      # ────────────────────────────────────────────────
+      # Start server + ensure model is available
+      # ────────────────────────────────────────────────
       - name: Prepare Ollama server and model
         run: |
+          echo "Starting Ollama server..."
           ollama serve &> ollama.log &
-          sleep 12
+          sleep 30   # More time on first run or slow runners
 
-          # Pull preferred model if not present
-          if ! ollama list | grep -q "llama3.2:3b"; then
-            echo "Pulling llama3.2:3b ..."
-            ollama pull llama3.2:3b || echo "llama3.2:3b pull failed"
+          # Debug: is server alive?
+          ps aux | grep ollama || echo "Warning: Ollama server not detected"
+
+          # Preferred model
+          MODEL="llama3.2:3b"
+          if ! ollama list | grep -q "$MODEL"; then
+            echo "Pulling $MODEL..."
+            ollama pull $MODEL || echo "Pull failed for $MODEL"
           fi
 
-          # Fallback to phi3:mini if preferred model failed
-          if ! ollama list | grep -q "llama3.2:3b" && ! ollama list | grep -q "phi3:mini"; then
-            echo "Falling back to phi3:mini ..."
-            ollama pull phi3:mini || echo "phi3:mini pull failed"
+          # Fallback model
+          FALLBACK="phi3:mini"
+          if ! ollama list | grep -q "$MODEL" && ! ollama list | grep -q "$FALLBACK"; then
+            echo "Falling back to $FALLBACK..."
+            ollama pull $FALLBACK || echo "Pull failed for $FALLBACK"
           fi
 
-          # Show available models for debugging
+          # Show what's available
+          echo "Available models:"
           ollama list
 
-      # ────────────────────────────────────────────────────────────────
-      #  GENERATE FRIENDLY USAGE DESCRIPTION
-      # ────────────────────────────────────────────────────────────────
+          # Last log lines for debugging
+          echo "Recent Ollama logs:"
+          tail -n 20 ollama.log || echo "No logs available"
+
+      # ────────────────────────────────────────────────
+      # Generate usage-focused description
+      # ────────────────────────────────────────────────
       - name: Generate user-friendly usage description
         env:
           PR_NUMBER: ${{ steps.pr-info.outputs.PR_NUMBER }}
           PR_TITLE: ${{ steps.pr-info.outputs.TITLE }}
           PR_AUTHOR: ${{ steps.pr-info.outputs.AUTHOR }}
         run: |
+          # Try preferred → fallback
           ollama run llama3.2:3b 2>/dev/null || ollama run phi3:mini 2>/dev/null <<'EOF' > usage-description.md
           You are a friendly app writer creating simple, helpful release notes or "What's new" entries.
 
@@ -113,26 +125,36 @@ jobs:
           PR description: ${{ steps.pr-info.outputs.BODY }}
           Commits:
           ${{ steps.pr-info.outputs.COMMITS }}
+
+          If you have almost no useful information and cannot create a meaningful entry, output only:
+          ### Minor update
+          A small improvement was made. Check the code or ask the developer for details.
           EOF
 
-      # ────────────────────────────────────────────────────────────────
-      #  APPEND TO CHANGELOG
-      # ────────────────────────────────────────────────────────────────
+      # ────────────────────────────────────────────────
+      # Append to CHANGELOG.md with fallback
+      # ────────────────────────────────────────────────
       - name: Append generated text to CHANGELOG.md
         run: |
+          DESCRIPTION=$(cat usage-description.md || echo "")
+
+          if [ -z "$DESCRIPTION" ] || [[ "$DESCRIPTION" =~ "No description generated" ]]; then
+            DESCRIPTION="### Minor update\nA small improvement was made to the app. Check the code or ask the developer for details."
+          fi
+
           {
             echo ""
             echo "## PR #${{ steps.pr-info.outputs.PR_NUMBER }}: ${{ steps.pr-info.outputs.TITLE }} (@${{ steps.pr-info.outputs.AUTHOR }})"
             echo ""
-            cat usage-description.md || echo "(No description generated)"
+            echo "$DESCRIPTION"
             echo ""
             echo "---"
             echo ""
           } >> CHANGELOG.md
 
-      # ────────────────────────────────────────────────────────────────
-      #  AUTO-COMMIT CHANGELOG
-      # ────────────────────────────────────────────────────────────────
+      # ────────────────────────────────────────────────
+      # Commit the changelog
+      # ────────────────────────────────────────────────
       - name: Commit the updated changelog
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
