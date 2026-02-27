@@ -5,14 +5,7 @@ function increase() {
   console.log("Count:", count);
 }
 
-function multiply() {
-  count *= 2;
-  console.log("Count:", count);
-}
-function divide() {
-  count /= 2;
-  console.log("Count:", count);
-}
+
 
 function decrease() {
   count--;
