@@ -10,30 +10,32 @@ jobs:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # Required to commit back
 
     steps:
-      - name: Checkout dev branch
+      - name: Checkout dev
         uses: actions/checkout@v4
         with:
           ref: dev
-          fetch-depth: 0  # full history
+          fetch-depth: 0  # Full history for commit scanning
 
-      - name: Conventional Changelog Action
+      - name: Generate Conventional Changelog
         id: changelog
-        uses: TriPSs/conventional-changelog-action@v7  # latest version
+        uses: TriPSs/conventional-changelog-action@v7  # Latest stable
         with:
-          github-token: ${{ secrets.github_token }}
-          version-file: package.json          # optional: if you have package.json with version
-          git-message: 'chore(release): {{currentTag}}'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Optional but useful:
+          version-file: ''  # Skip if no package.json version bump needed
+          output-file: CHANGELOG.md  # Appends/updates here
+          preset: conventionalcommits  # Groups feat/fix/etc.
+          skip-on-empty: true  # Don't fail if no changes
+          git-message: 'docs: update CHANGELOG.md [skip ci]'
           git-user-name: 'GitHub Actions'
           git-user-email: 'actions@github.com'
-          output-file: CHANGELOG.md           # appends to this file
-          preset: conventionalcommits         # groups feat/fix/etc.
 
-      - name: Commit updated CHANGELOG.md
+      - name: Commit updated CHANGELOG.md (if changed)
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "docs: update CHANGELOG.md [skip ci]"
+          commit_message: "docs: update CHANGELOG.md after merge [skip ci]"
           branch: dev
           file_pattern: CHANGELOG.md
