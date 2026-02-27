@@ -44,3 +44,10 @@ You can now easily track how many steps you've taken throughout each day right f
 
 ---
 
+
+## PR #8: counter updateddd (@harshaltechhive)
+
+### Minor update\nA small improvement was made to the app. Check the code or ask the developer for details.
+
+---
+
