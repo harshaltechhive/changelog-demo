@@ -37,3 +37,10 @@ You can now easily track how many steps you've taken throughout each day right f
 
 ---
 
+
+## PR #7: couter update (@harshaltechhive)
+
+(No description generated)
+
+---
+
