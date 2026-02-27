@@ -26,3 +26,14 @@ The reviewer should also consider refactoring this approach if it aligns well wi
 
 
 ---
+
+## PR #5: some changes in counter (@harshaltechhive)
+
+### Count Your Steps Daily
+You can now easily track how many steps you've taken throughout each day right from your home screen! Open the app and tap on the 'Steps Tracker' icon. Scroll through to see today’ end number, or hit that refresh button if more data has come in since last time. Excited? You should be — every step counts towards a healthier you!
+
+
+
+
+---
+
