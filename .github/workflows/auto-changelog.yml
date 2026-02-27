@@ -27,11 +27,12 @@ jobs:
           echo "AUTHOR=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
           echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
 
-          # Collect commit messages from this PR
-          echo "COMMITS<<EOF" >> $GITHUB_OUTPUT
+          # Fixed heredoc syntax
+          echo "COMMITS<<COMMITS_EOF" >> $GITHUB_OUTPUT
           git log --pretty=format:"- %s (%an)" \
-            ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+            ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} || echo "- No commits found"
+          echo "" >> $GITHUB_OUTPUT
+          echo "COMMITS_EOF" >> $GITHUB_OUTPUT
 
       - name: Setup Ollama & download model
         run: |
