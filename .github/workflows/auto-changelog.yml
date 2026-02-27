@@ -1,4 +1,4 @@
-name: Auto Update Changelog on Merge to dev
+name: Free AI Changelog with Ollama
 
 on:
   pull_request:
@@ -6,36 +6,72 @@ on:
     branches: [dev]
 
 jobs:
-  update-changelog:
+  ai-changelog:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required to push updates back
+      contents: write
 
     steps:
-      - name: Checkout dev
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: dev
-          fetch-depth: 0  # Full history needed to scan commits
+          fetch-depth: 0
 
-      - name: Generate Conventional Changelog
-        id: changelog
-        uses: TriPSs/conventional-changelog-action@v6  # ← Fixed: use v6 (latest major)
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          preset: conventionalcommits  # Use this for feat/fix/etc. grouping
-          output-file: CHANGELOG.md    # Appends/updates in this file
-          skip-on-empty: true          # Don't fail if no new conventional commits
-          skip-version-file: true      # No need to bump version in package.json
-          skip-commit: true            # Don't auto-commit/tag here (we handle below)
-          git-message: 'docs: update CHANGELOG.md [skip ci]'
-          git-user-name: 'GitHub Actions'
-          git-user-email: 'actions@github.com'
+      - name: Get PR diff
+        id: diff
+        run: |
+          git fetch origin ${{ github.event.pull_request.head.sha }}
+          echo "DIFF<<EOF" >> $GITHUB_OUTPUT
+          git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Commit updated CHANGELOG.md (if changed)
+      - name: Setup Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &> ollama.log &
+          sleep 15  # Wait for server startup
+          ollama pull phi3:mini   # Small & fast free model (~2GB, good for code)
+          # Alternative: ollama pull llama3.1:8b if you want stronger but slower
+
+      - name: Generate changelog entry with Ollama
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # Limit diff size (phi3 handles ~8k-12k tokens well)
+          echo "${{ steps.diff.outputs.DIFF }}" | head -c 12000 > diff.txt
+
+          # Prompt Ollama
+          ollama run phi3:mini "
+          You are a senior React/TypeScript developer.
+          Review this code diff from a merged PR.
+          Write a short, professional changelog entry (3-7 sentences).
+          Describe the real functionality added/changed/impact.
+          Focus on: components, features, UX, security, state/routing/API.
+          Ignore formatting/comments/tests unless meaningful.
+          Use markdown. Start with ### Added/Improved [Feature]
+
+          PR #${PR_NUMBER}: $$   {PR_TITLE} by @   $${PR_AUTHOR}
+
+          Diff:
+          $(cat diff.txt)
+          " > description.md
+
+      - name: Append to CHANGELOG.md
+        run: |
+          echo "" >> CHANGELOG.md
+          echo "## PR #${{ env.PR_NUMBER }}: $$   {{ env.PR_TITLE }} (@   $${{ env.PR_AUTHOR }})" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          cat description.md >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "---" >> CHANGELOG.md
+
+      - name: Commit changelog update
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "docs: update CHANGELOG.md after merge [skip ci]"
+          commit_message: "docs: Ollama AI changelog entry for PR #${{ github.event.pull_request.number }} [skip ci]"
           branch: dev
           file_pattern: CHANGELOG.md
