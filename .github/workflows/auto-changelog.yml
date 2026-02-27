@@ -1,4 +1,4 @@
-name: Free AI Changelog with Ollama
+name: Usage-Focused Changelog with Ollama (Free)
 
 on:
   pull_request:
@@ -6,72 +6,87 @@ on:
     branches: [dev]
 
 jobs:
-  ai-changelog:
+  generate-usage-changelog:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout dev branch
         uses: actions/checkout@v4
         with:
           ref: dev
           fetch-depth: 0
 
-      - name: Get PR diff
-        id: diff
+      - name: Collect PR information
+        id: pr-info
         run: |
-          git fetch origin ${{ github.event.pull_request.head.sha }}
-          echo "DIFF<<EOF" >> $GITHUB_OUTPUT
-          git diff ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} >> $GITHUB_OUTPUT
+          echo "TITLE=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "BODY=${{ github.event.pull_request.body || 'No description provided' }}" >> $GITHUB_OUTPUT
+          echo "AUTHOR=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
+          echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+
+          # Collect commit messages from this PR
+          echo "COMMITS<<EOF" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s (%an)" \
+            ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Setup Ollama
+      - name: Setup Ollama & download model
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           ollama serve &> ollama.log &
-          sleep 15  # Wait for server startup
-          ollama pull phi3:mini   # Small & fast free model (~2GB, good for code)
-          # Alternative: ollama pull llama3.1:8b if you want stronger but slower
+          sleep 20
+          ollama pull phi3:mini || echo "Model pull failed but continuing..."
 
-      - name: Generate changelog entry with Ollama
+      - name: Generate user-friendly usage description
         env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.PR_NUMBER }}
+          PR_TITLE: ${{ steps.pr-info.outputs.TITLE }}
+          PR_AUTHOR: ${{ steps.pr-info.outputs.AUTHOR }}
         run: |
-          # Limit diff size (phi3 handles ~8k-12k tokens well)
-          echo "${{ steps.diff.outputs.DIFF }}" | head -c 12000 > diff.txt
-
-          # Prompt Ollama
           ollama run phi3:mini "
-          You are a senior React/TypeScript developer.
-          Review this code diff from a merged PR.
-          Write a short, professional changelog entry (3-7 sentences).
-          Describe the real functionality added/changed/impact.
-          Focus on: components, features, UX, security, state/routing/API.
-          Ignore formatting/comments/tests unless meaningful.
-          Use markdown. Start with ### Added/Improved [Feature]
+          You are a friendly app writer creating simple, helpful release notes or \"What's new\" entries.
 
-          PR #${PR_NUMBER}: $$   {PR_TITLE} by @   $${PR_AUTHOR}
+          From the PR title, description, and commit messages:
+          - Write ONLY about what the user can now DO and HOW to use the new/improved feature.
+          - Use simple, everyday language: \"You can now...\", \"This lets you...\", \"Go to ... and ...\", \"Click ... to ...\"
+          - Make it welcoming and clear — like instructions in the app itself.
+          - 3–6 sentences maximum.
+          - Use markdown formatting.
+          - Start directly with ### [Short Feature Name or Action] (example: ### Log In to Your Account)
 
-          Diff:
-          $(cat diff.txt)
-          " > description.md
+          Do NOT mention:
+          - Code, components, functions, state, validation, API, backend, frontend, React, TypeScript,
+            commits, PR number (except in heading), implementation details, or any technical words.
 
-      - name: Append to CHANGELOG.md
+          Example output style:
+          ### Log In to Your Account
+          You can now sign in using your email and password on the nice blue login screen. Just type your email, enter your password, and tap the Login button. Check \"Remember me\" if you want to stay signed in next time you open the app. Forgot your password? Click the link to reset it quickly.
+
+          Input:
+          PR title: ${{ env.PR_TITLE }}
+          PR description: ${{ steps.pr-info.outputs.BODY }}
+          Commits:
+          ${{ steps.pr-info.outputs.COMMITS }}
+          " > usage-description.md
+
+      - name: Append generated text to CHANGELOG.md
         run: |
-          echo "" >> CHANGELOG.md
-          echo "## PR #${{ env.PR_NUMBER }}: $$   {{ env.PR_TITLE }} (@   $${{ env.PR_AUTHOR }})" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          cat description.md >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "---" >> CHANGELOG.md
+          {
+            echo ""
+            echo "## PR #${{ steps.pr-info.outputs.PR_NUMBER }}: ${{ steps.pr-info.outputs.TITLE }} (@${{ steps.pr-info.outputs.AUTHOR }})"
+            echo ""
+            cat usage-description.md
+            echo ""
+            echo "---"
+            echo ""
+          } >> CHANGELOG.md
 
-      - name: Commit changelog update
+      - name: Commit the updated changelog
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "docs: Ollama AI changelog entry for PR #${{ github.event.pull_request.number }} [skip ci]"
+          commit_message: "docs: add user-friendly usage changelog for PR #${{ steps.pr-info.outputs.PR_NUMBER }} [skip ci]"
           branch: dev
           file_pattern: CHANGELOG.md
