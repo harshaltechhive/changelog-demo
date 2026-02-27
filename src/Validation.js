@@ -6,6 +6,9 @@ function validateForm(username, password) {
   if (password.length < 6) {
     return "Password must be at least 6 characters";
   }
+   if (username.length < 6) {
+    return "Username must be at least 6 characters";
+  }
 
   return "Form is valid";
 }
