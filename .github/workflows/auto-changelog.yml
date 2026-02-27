@@ -1,0 +1,38 @@
+name: Auto Update Changelog on Merge to dev
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+
+jobs:
+  update-changelog:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Needed to push to dev
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0   # Full history needed for commit scanning
+
+      - name: Generate and append to CHANGELOG.md
+        uses: requarks/changelog-action@v1
+        id: changelog
+        with:
+          token: ${{ github.token }}
+          writeToFile: true
+          changelogFilePath: CHANGELOG.md
+          # Optional: customize sections if you want different grouping
+          # configFilePath: .github/changelog-config.json  (you can add later)
+
+      - name: Commit updated CHANGELOG.md
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: auto-update CHANGELOG.md after merge"
+          branch: dev
+          file_pattern: CHANGELOG.md
