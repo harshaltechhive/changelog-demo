@@ -27,7 +27,12 @@ function divide() {
 }
 
 
-function quadlize() {
-  count *= 4;
+function sixth() {
+  count *= 6;
+  console.log("Count:", count);
+}
+
+function panch() {
+  count *= 5;
   console.log("Count:", count);
 }
