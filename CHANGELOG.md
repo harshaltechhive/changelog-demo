@@ -6,3 +6,10 @@ You can now multiply your numbers by custom values. Go to the calculator and tap
 
 ---
 
+
+## PR #10: .. (@harshaltechhive)
+
+There doesn't seem to be any information about what changes were made in this pull request. Can you please provide more details about the changes or the commits?
+
+---
+
