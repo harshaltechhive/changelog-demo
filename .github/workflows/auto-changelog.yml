@@ -1,4 +1,4 @@
-name: Usage-Focused Changelog with Ollama (Free)
+name: Usage-Focused Changelog with Ollama (Cached & Free)
 
 on:
   pull_request:
@@ -19,6 +19,9 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      # ────────────────────────────────────────────────────────────────
+      #  COLLECT PR METADATA (title, body, author, commits)
+      # ────────────────────────────────────────────────────────────────
       - name: Collect PR information
         id: pr-info
         run: |
@@ -27,32 +30,71 @@ jobs:
           echo "AUTHOR=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
           echo "PR_NUMBER=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
 
-          # Fixed heredoc syntax
           echo "COMMITS<<COMMITS_EOF" >> $GITHUB_OUTPUT
           git log --pretty=format:"- %s (%an)" \
             ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} || echo "- No commits found"
           echo "" >> $GITHUB_OUTPUT
           echo "COMMITS_EOF" >> $GITHUB_OUTPUT
 
-      - name: Setup Ollama & download model
+      # ────────────────────────────────────────────────────────────────
+      #  CACHE OLLAMA + MODEL (this is the big time-saver)
+      # ────────────────────────────────────────────────────────────────
+      - name: Cache Ollama binary and models
+        uses: actions/cache@v4
+        id: cache-ollama
+        with:
+          path: |
+            ~/.ollama
+            /usr/local/bin/ollama
+          key: ollama-models-v2-${{ runner.os }}-phi3-mini-llama3.2-3b
+          restore-keys: ollama-models-v2-${{ runner.os }}-
+
+      # ────────────────────────────────────────────────────────────────
+      #  INSTALL OLLAMA ONLY IF CACHE MISS
+      # ────────────────────────────────────────────────────────────────
+      - name: Install Ollama (only if not cached)
+        if: steps.cache-ollama.outputs.cache-hit != 'true'
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve &> ollama.log &
-          sleep 20
-          ollama pull phi3:mini || echo "Model pull failed but continuing..."
 
+      # ────────────────────────────────────────────────────────────────
+      #  START SERVER + PULL MODEL IF MISSING
+      # ────────────────────────────────────────────────────────────────
+      - name: Prepare Ollama server and model
+        run: |
+          ollama serve &> ollama.log &
+          sleep 12
+
+          # Pull preferred model if not present
+          if ! ollama list | grep -q "llama3.2:3b"; then
+            echo "Pulling llama3.2:3b ..."
+            ollama pull llama3.2:3b || echo "llama3.2:3b pull failed"
+          fi
+
+          # Fallback to phi3:mini if preferred model failed
+          if ! ollama list | grep -q "llama3.2:3b" && ! ollama list | grep -q "phi3:mini"; then
+            echo "Falling back to phi3:mini ..."
+            ollama pull phi3:mini || echo "phi3:mini pull failed"
+          fi
+
+          # Show available models for debugging
+          ollama list
+
+      # ────────────────────────────────────────────────────────────────
+      #  GENERATE FRIENDLY USAGE DESCRIPTION
+      # ────────────────────────────────────────────────────────────────
       - name: Generate user-friendly usage description
         env:
           PR_NUMBER: ${{ steps.pr-info.outputs.PR_NUMBER }}
           PR_TITLE: ${{ steps.pr-info.outputs.TITLE }}
           PR_AUTHOR: ${{ steps.pr-info.outputs.AUTHOR }}
         run: |
-          ollama run kimi-k2.5 
-          You are a friendly app writer creating simple, helpful release notes or \"What's new\" entries.
+          ollama run llama3.2:3b 2>/dev/null || ollama run phi3:mini 2>/dev/null <<'EOF' > usage-description.md
+          You are a friendly app writer creating simple, helpful release notes or "What's new" entries.
 
           From the PR title, description, and commit messages:
           - Write ONLY about what the user can now DO and HOW to use the new/improved feature.
-          - Use simple, everyday language: \"You can now...\", \"This lets you...\", \"Go to ... and ...\", \"Click ... to ...\"
+          - Use simple, everyday language: "You can now...", "This lets you...", "Go to ... and ...", "Click ... to ..."
           - Make it welcoming and clear — like instructions in the app itself.
           - 3–6 sentences maximum.
           - Use markdown formatting.
@@ -64,27 +106,33 @@ jobs:
 
           Example output style:
           ### Log In to Your Account
-          You can now sign in using your email and password on the nice blue login screen. Just type your email, enter your password, and tap the Login button. Check \"Remember me\" if you want to stay signed in next time you open the app. Forgot your password? Click the link to reset it quickly.
+          You can now sign in using your email and password on the nice blue login screen. Just type your email, enter your password, and tap the Login button. Check "Remember me" if you want to stay signed in next time you open the app. Forgot your password? Click the link to reset it quickly.
 
           Input:
           PR title: ${{ env.PR_TITLE }}
           PR description: ${{ steps.pr-info.outputs.BODY }}
           Commits:
           ${{ steps.pr-info.outputs.COMMITS }}
-          " > usage-description.md
+          EOF
 
+      # ────────────────────────────────────────────────────────────────
+      #  APPEND TO CHANGELOG
+      # ────────────────────────────────────────────────────────────────
       - name: Append generated text to CHANGELOG.md
         run: |
           {
             echo ""
             echo "## PR #${{ steps.pr-info.outputs.PR_NUMBER }}: ${{ steps.pr-info.outputs.TITLE }} (@${{ steps.pr-info.outputs.AUTHOR }})"
             echo ""
-            cat usage-description.md
+            cat usage-description.md || echo "(No description generated)"
             echo ""
             echo "---"
             echo ""
           } >> CHANGELOG.md
 
+      # ────────────────────────────────────────────────────────────────
+      #  AUTO-COMMIT CHANGELOG
+      # ────────────────────────────────────────────────────────────────
       - name: Commit the updated changelog
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
