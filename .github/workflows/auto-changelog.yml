@@ -47,7 +47,7 @@ jobs:
           PR_TITLE: ${{ steps.pr-info.outputs.TITLE }}
           PR_AUTHOR: ${{ steps.pr-info.outputs.AUTHOR }}
         run: |
-          ollama run phi3:mini "
+          ollama run kimi-k2.5 
           You are a friendly app writer creating simple, helpful release notes or \"What's new\" entries.
 
           From the PR title, description, and commit messages:
